@@ -1,18 +1,31 @@
-# Render blueprint: one Docker web service (SPA + API on one origin).
-# Deploy: Render dashboard → New → Blueprint → select this repository.
+# Render blueprint for the Django API (the React app is deployed separately on Vercel).
+# Render dashboard → New → Blueprint → pick this repository → fill in the `sync: false` values.
 services:
   - type: web
-    name: weather-aware-truck-routing
-    runtime: docker
+    name: wx-truck-routing-api
+    runtime: python
+    rootDir: backend
     plan: free
+    region: oregon
+    buildCommand: pip install -r requirements.txt && python manage.py collectstatic --noinput
+    # Threads: requests are I/O-bound (routing + weather APIs); timeout covers slow upstreams.
+    startCommand: gunicorn config.wsgi:application --bind 0.0.0.0:$PORT --workers ${WEB_CONCURRENCY:-2} --threads 8 --timeout 90 --access-logfile -
     healthCheckPath: /api/health
+    autoDeploy: true
     envVars:
+      - key: PYTHON_VERSION
+        value: 3.12.8
+      - key: DJANGO_ENV
+        value: production
       - key: DJANGO_SECRET_KEY
         generateValue: true
       - key: DJANGO_ALLOWED_HOSTS
         value: .onrender.com
       - key: WEB_CONCURRENCY
         value: "2"
-      # Optional: a shared cache across workers/instances.
-      # - key: REDIS_URL
-      #   fromService: { type: redis, name: wx-cache, property: connectionString }
+      # Your Vercel production URL, e.g. https://weather-aware-truck-routing.vercel.app
+      - key: CORS_ALLOWED_ORIGINS
+        sync: false
+      # Optional: allow Vercel preview deployments, e.g. ^https://weather-aware-truck-routing-.*\.vercel\.app$
+      - key: CORS_ALLOWED_ORIGIN_REGEXES
+        sync: false

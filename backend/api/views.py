@@ -16,14 +16,6 @@ from .presenters import present_heatmap, present_meta, present_place, present_pl
 from .serializers import HeatmapRequestSerializer, PlaceSearchSerializer, TripPlanRequestSerializer
 
 
-class HealthView(APIView):
-    throttle_classes: list = []
-
-    @extend_schema(responses=OpenApiTypes.OBJECT, summary="Liveness probe")
-    def get(self, request: Request) -> Response:
-        return Response({"status": "ok"})
-
-
 class MetaView(APIView):
     throttle_classes: list = []
 

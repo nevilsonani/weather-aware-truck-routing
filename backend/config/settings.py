@@ -57,6 +57,7 @@ INSTALLED_APPS = [
 ]
 
 MIDDLEWARE = [
+    "config.middleware.HealthCheckMiddleware",  # first: probes bypass host checks/redirects
     "django.middleware.security.SecurityMiddleware",
     "whitenoise.middleware.WhiteNoiseMiddleware",
     "corsheaders.middleware.CorsMiddleware",
@@ -99,13 +100,16 @@ if FRONTEND_DIST_DIR and FRONTEND_DIST_DIR.is_dir():
     WHITENOISE_INDEX_FILE = True
 
 # --- Security ------------------------------------------------------------------------------
+# Only needed when the SPA is served from another origin (e.g. Vercel + Render). The regex list
+# admits preview deployments such as ^https://weather-aware-truck-routing-.*\.vercel\.app$
 CORS_ALLOWED_ORIGINS = env_list(
     "CORS_ALLOWED_ORIGINS", "" if IS_PRODUCTION else "http://localhost:5173,http://127.0.0.1:5173"
 )
+CORS_ALLOWED_ORIGIN_REGEXES = env_list("CORS_ALLOWED_ORIGIN_REGEXES")
+CORS_PREFLIGHT_MAX_AGE = 86_400  # browsers cache the preflight for POSTs for a day
 if IS_PRODUCTION:
     SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
     SECURE_SSL_REDIRECT = env_bool("SECURE_SSL_REDIRECT", True)
-    SECURE_REDIRECT_EXEMPT = [r"^api/health$"]  # platform health checks use plain HTTP
     SECURE_HSTS_SECONDS = env_int("SECURE_HSTS_SECONDS", 3600)
     SECURE_CONTENT_TYPE_NOSNIFF = True
     SECURE_REFERRER_POLICY = "strict-origin-when-cross-origin"

@@ -168,3 +168,22 @@ def test_place_search_adds_timezone_and_caches(client, services):
 
 def test_place_search_requires_a_query(client):
     assert client.get("/api/v1/places/search", {"q": "x"}).status_code == 400
+
+
+@pytest.mark.parametrize("host", ["10.0.4.7", "internal-probe"])
+def test_health_ignores_unknown_hosts(client, host):
+    # Platform probes may use an internal host that is not in ALLOWED_HOSTS.
+    response = client.get("/api/health", HTTP_HOST=host)
+    assert response.status_code == 200
+    assert response.json() == {"status": "ok"}
+
+
+def test_cors_preflight_for_configured_origin(client, settings):
+    settings.CORS_ALLOWED_ORIGIN_REGEXES = [r"^https://wx-.*\.vercel\.app$"]
+    response = client.options(
+        "/api/v1/trips/plan",
+        HTTP_ORIGIN="https://wx-git-main.vercel.app",
+        HTTP_ACCESS_CONTROL_REQUEST_METHOD="POST",
+        HTTP_ACCESS_CONTROL_REQUEST_HEADERS="content-type",
+    )
+    assert response["access-control-allow-origin"] == "https://wx-git-main.vercel.app"

@@ -1,4 +1,4 @@
-import { type FormEvent, useState } from 'react'
+import { type FormEvent, useEffect, useState } from 'react'
 import { ApiError } from '../../api/client'
 import type { Meta, Place, TripPlanRequest } from '../../api/types'
 import { SegmentedControl } from '../../components/SegmentedControl'
@@ -231,6 +231,7 @@ export function TripForm({ meta, submitting, error, onSubmit }: Props) {
         {submitting && <Spinner />}
         {submitting ? 'Planning routes & sampling forecasts…' : 'Plan routes'}
       </button>
+      {submitting && <SlowRequestHint />}
     </form>
   )
 }
@@ -264,5 +265,20 @@ function LoadRuleHint({ meta, loadLbs }: { meta: Meta | undefined; loadLbs: numb
         </>
       )}
     </div>
+  )
+}
+
+/** Free-tier hosts sleep when idle; the first request after a nap can take up to a minute. */
+function SlowRequestHint() {
+  const [slow, setSlow] = useState(false)
+  useEffect(() => {
+    const timer = setTimeout(() => setSlow(true), 8_000)
+    return () => clearTimeout(timer)
+  }, [])
+  if (!slow) return null
+  return (
+    <p className="text-center text-xs text-slate-500" aria-live="polite">
+      Still working… the first request after the server has been idle can take up to a minute.
+    </p>
   )
 }
