@@ -1,5 +1,5 @@
 import type { Checkpoint, RoutePlan } from '../../api/types'
-import { formatDateTime, formatMiles, formatRate } from '../../lib/format'
+import { formatDateTime, formatMiles, formatRate, truncate } from '../../lib/format'
 import { riskStyle } from '../../lib/risk'
 
 const CONDITION_LABEL = { wind: 'Wind', rain: 'Rain', snow: 'Snow' } as const
@@ -41,9 +41,9 @@ export function CheckpointTooltip({ route, checkpoint }: { route: RoutePlan; che
           <>
             <dt className="text-slate-500">Wind</dt>
             <dd className="tabular-nums">
-              {weather.wind_mph.toFixed(0)} mph
+              {truncate(weather.wind_mph, 1)} mph
               {weather.gust_mph !== null && (
-                <span className="text-slate-500"> · gusts {weather.gust_mph.toFixed(0)}</span>
+                <span className="text-slate-500"> · gusts {truncate(weather.gust_mph, 0)}</span>
               )}
             </dd>
             <dt className="text-slate-500">Rain</dt>

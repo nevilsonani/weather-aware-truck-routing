@@ -253,4 +253,4 @@ class RiskRules:
 def _truncate(value: float, digits: int) -> str:
     """Format without rounding up, so 34.96 mph never reads "35.0 mph → Moderate"."""
     factor = 10**digits
-    return f"{math.floor(value * factor) / factor:.{digits}f}"
+    return f"{math.floor(value * factor + 1e-9) / factor:.{digits}f}"  # 1e-9: float error

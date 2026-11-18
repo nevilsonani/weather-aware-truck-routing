@@ -52,6 +52,15 @@ export function formatShortDateTime(isoOrMs: string | number, timeZone: string):
   return formatter(timeZone, 'short').format(new Date(isoOrMs)).replace(',', '')
 }
 
+/**
+ * Fixed-decimals without rounding up, so a value just under a risk threshold never *reads* as
+ * the threshold (34.96 mph is shown as 34.9, not 35, next to a "Moderate" label).
+ */
+export function truncate(value: number, digits: number): string {
+  const factor = 10 ** digits
+  return (Math.floor(value * factor + 1e-9) / factor).toFixed(digits)
+}
+
 export function formatRate(inPerHour: number): string {
-  return `${inPerHour.toFixed(2)} in/hr`
+  return `${truncate(inPerHour, 2)} in/hr`
 }

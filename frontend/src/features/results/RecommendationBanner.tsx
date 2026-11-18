@@ -44,7 +44,8 @@ export function RecommendationBanner({ plan }: { plan: TripPlan }) {
         </ul>
       )}
       <p className="mt-2 text-[11px] opacity-70">
-        Ranked by No Travel miles, then Severe miles, High miles, average risk and travel time.
+        Routes missing forecasts for over 10% of their length rank last; then fewest No Travel, Severe and
+        High miles, lowest average risk, shortest travel time.
       </p>
     </section>
   )

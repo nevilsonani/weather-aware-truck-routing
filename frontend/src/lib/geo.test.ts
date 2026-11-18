@@ -61,3 +61,12 @@ describe('RouteLine', () => {
     expect(part[2][0]).toBeCloseTo(-98.5, 6)
   })
 })
+
+describe('truncate', () => {
+  it('never rounds a value up across a threshold', async () => {
+    const { truncate } = await import('./format')
+    expect(truncate(34.96, 0)).toBe('34')
+    expect(truncate(0.2499, 2)).toBe('0.24')
+    expect(truncate(0.1, 2)).toBe('0.10') // exact values survive float error
+  })
+})

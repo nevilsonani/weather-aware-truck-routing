@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import { useMap } from 'react-map-gl/maplibre'
 import type { Checkpoint, RestStop, RoutePlan } from '../../api/types'
-import { formatDateTime, formatDuration, formatShortDateTime } from '../../lib/format'
+import { formatDateTime, formatDuration, formatShortDateTime, truncate } from '../../lib/format'
 import { riskStyle } from '../../lib/risk'
 import { useUiStore } from '../../store/ui'
 import { MAP_ID } from '../map/constants'
@@ -117,7 +117,8 @@ function CheckpointRow({
             {w && (
               <span title="Wind (mph) · rain and snow (in/hr) at the ETA">
                 {' · '}
-                {w.wind_mph.toFixed(0)} mph · rain {w.rain_in_hr.toFixed(2)} · snow {w.snow_in_hr.toFixed(2)}
+                {truncate(w.wind_mph, 0)} mph · rain {truncate(w.rain_in_hr, 2)} · snow{' '}
+                {truncate(w.snow_in_hr, 2)}
               </span>
             )}
           </span>
