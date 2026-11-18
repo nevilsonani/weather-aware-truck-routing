@@ -29,3 +29,17 @@ services:
       # Optional: allow Vercel preview deployments, e.g. ^https://weather-aware-truck-routing-.*\.vercel\.app$
       - key: CORS_ALLOWED_ORIGIN_REGEXES
         sync: false
+      # Shared cache for weather, place search and rate limits (the Key Value service below).
+      - key: REDIS_URL
+        fromService:
+          type: keyvalue
+          name: wx-truck-routing-cache
+          property: connectionString
+
+  # Free Redis-compatible store. Same region as the API so they talk over Render's private network.
+  - type: keyvalue
+    name: wx-truck-routing-cache
+    plan: free
+    region: oregon
+    maxmemoryPolicy: allkeys-lru # when full, drop the least recently used entries
+    ipAllowList: [] # no public access; only services in this account can connect

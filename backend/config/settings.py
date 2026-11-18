@@ -115,30 +115,33 @@ if IS_PRODUCTION:
     SECURE_REFERRER_POLICY = "strict-origin-when-cross-origin"
 
 # --- Caching -------------------------------------------------------------------------------
-# "default" holds many tiny weather cell-day entries; "routes" holds few, large route sets.
+# "default" holds many small, widely shared entries (weather cell-days ~1 KB, place searches,
+# rate-limit counters): shared through Redis when REDIS_URL is set, so every worker and instance
+# reuses them. "routes" holds a few large route sets (up to several MB): kept in each process's
+# memory so they never crowd a small Redis.
 REDIS_URL = env("REDIS_URL")
-if REDIS_URL:
-    CACHES = {
-        alias: {
-            "BACKEND": "django.core.cache.backends.redis.RedisCache",
+_LOCAL_WEATHER_CACHE = {
+    "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+    "LOCATION": "weather",
+    "OPTIONS": {"MAX_ENTRIES": 100_000, "CULL_FREQUENCY": 4},
+}
+CACHES = {
+    "default": (
+        {
+            "BACKEND": "config.cache.ResilientRedisCache",  # cache errors = cache misses
             "LOCATION": REDIS_URL,
-            "KEY_PREFIX": alias,
+            "KEY_PREFIX": "wx",
+            "OPTIONS": {"socket_connect_timeout": 1, "socket_timeout": 1},
         }
-        for alias in ("default", "routes")
-    }
-else:
-    CACHES = {
-        "default": {
-            "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
-            "LOCATION": "weather",
-            "OPTIONS": {"MAX_ENTRIES": 100_000, "CULL_FREQUENCY": 4},
-        },
-        "routes": {
-            "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
-            "LOCATION": "routes",
-            "OPTIONS": {"MAX_ENTRIES": 64},
-        },
-    }
+        if REDIS_URL
+        else _LOCAL_WEATHER_CACHE
+    ),
+    "routes": {
+        "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+        "LOCATION": "routes",
+        "OPTIONS": {"MAX_ENTRIES": 64},
+    },
+}
 
 # --- REST framework ------------------------------------------------------------------------
 REST_FRAMEWORK = {

@@ -4,7 +4,7 @@ import hashlib
 from functools import cache
 
 from django.conf import settings
-from django.http import HttpRequest, HttpResponse
+from django.http import HttpRequest, HttpResponse, JsonResponse
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, extend_schema
 from rest_framework.request import Request
@@ -99,6 +99,30 @@ class PlaceSearchView(APIView):
             ]
             services.cache.set(key, results, timeout=settings.PLANNER["PLACES_CACHE_TTL_S"])
         return Response({"results": results})
+
+
+def api_index(request: HttpRequest) -> JsonResponse:
+    """Landing response for the API's root URL, so a visitor finds the docs instead of a 404."""
+
+    def link(path: str) -> str:
+        return request.build_absolute_uri(path)
+
+    return JsonResponse(
+        {
+            "service": "Weather-Aware Truck Routing API",
+            "status": "ok",
+            "docs": link("/api/docs"),
+            "openapi_schema": link("/api/schema"),
+            "health": link("/api/health"),
+            "endpoints": {
+                "meta": "GET /api/v1/meta",
+                "place_search": "GET /api/v1/places/search?q=denver",
+                "plan_trip": "POST /api/v1/trips/plan",
+                "corridor_heatmap": "POST /api/v1/trips/heatmap",
+            },
+        },
+        json_dumps_params={"indent": 2},
+    )
 
 
 @cache
