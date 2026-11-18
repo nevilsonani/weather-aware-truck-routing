@@ -257,7 +257,7 @@ Every setting is an environment variable with a working default. The full list i
 | `ROUTING_PROVIDERS` | `valhalla,osrm` | Provider order; the next is used only when one is unavailable |
 | `WIND_BASIS` | `sustained` | Classify wind on `sustained` speed or `gust` |
 | `TRUCK_TARE_WEIGHT_LBS` | `35000` | Added to the load to get gross weight for truck routing |
-| `REDIS_URL` | – | Shared cache across workers/instances (in-process cache otherwise) |
+| `REDIS_URL` | – | Shared cache for weather, place search and rate limits across workers and instances (in-process otherwise; a Redis outage only means cache misses) |
 | `OPEN_METEO_API_KEY` | – | Switches to Open-Meteo's commercial endpoint and quotas |
 | `HEATMAP_MAX_CELLS` | `220` | Forecast locations per corridor heat map |
 
@@ -273,7 +273,7 @@ cd backend  && pytest && ruff check . && ruff format --check .
 cd frontend && npm test && npm run lint && npm run format:check && npm run build
 ```
 
-- **166 backend tests**, by layer:
+- **168 backend tests**, by layer:
   - risk band boundaries and every load-rule edge
   - scalar vs. vectorised classification equivalence on 2,000 random samples
   - HOS schedules, checkpoint generation and coverage
@@ -297,6 +297,7 @@ cd frontend && npm test && npm run lint && npm run format:check && npm run build
 |---|---|---|
 | Frontend (React build) | Vercel | [`frontend/vercel.json`](frontend/vercel.json) |
 | API (Django + Gunicorn) | Render | [`render.yaml`](render.yaml) |
+| Shared cache (Redis-compatible Key Value, free) | Render | [`render.yaml`](render.yaml) |
 
 The frontend reaches the API through `VITE_API_BASE_URL`, and the API accepts the frontend's
 origin through `CORS_ALLOWED_ORIGINS`.
@@ -316,7 +317,8 @@ origin through `CORS_ALLOWED_ORIGINS`.
   25 m). All computation uses full-resolution geometry. JSON is gzip-compressed (a
   cross-country plan is ~100 KB on the wire; a heat map ~16 KB).
 - **Horizontal scaling.** No sessions, no database, and every request is self-contained.
-  Set `REDIS_URL` to share the route/weather cache across instances. Per-client throttling
+  With `REDIS_URL` set, weather, place search and rate-limit counters are shared by every worker
+  and instance (route sets, which can be MB-sized, stay in each process's memory). Per-client throttling
   (`NUM_PROXIES` aware) protects upstream quotas.
 - **Frontend.**
   - MapLibre (WebGL) is lazy-loaded in its own chunk; the initial JS is ~97 KB gzipped.
