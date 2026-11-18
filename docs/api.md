@@ -48,7 +48,7 @@ Response (abridged):
       "Fewer Severe miles than Route A (0.0 mi vs 50.0 mi)",
       "Fewer High miles than Route C (25.0 mi vs 75.0 mi)"
     ],
-    "criteria": ["no_travel_miles", "severe_miles", "high_miles", "average_risk", "travel_time"]
+    "criteria": ["weather_coverage", "no_travel_miles", "severe_miles", "high_miles", "average_risk", "travel_time"]
   },
   "routes": [
     {

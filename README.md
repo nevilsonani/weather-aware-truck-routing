@@ -31,7 +31,7 @@ with a **0–48 h forecast slider** shows how the weather evolves while the truc
 
 ## Quick start
 
-Requirements: Python 3.11+, Node 20.19+ (22 recommended). No API keys are needed: every
+Requirements: Python 3.11+, Node 22. No API keys are needed: every
 third-party service used has a free, key-less tier.
 
 ```bash
@@ -118,8 +118,10 @@ Travel for any load). The checkpoint level is the worst of wind, rain and snow, 
 reasons are returned for the UI, e.g. *"Wind 47 mph → Severe; load 42,000 lb > 30,000 lb raises
 it to No Travel"*.
 
-**6. Recommendation.** Lexicographic, as specified, with one deliberate addition in front:
-**fewest No Travel miles** (see [edge cases](#edge-cases-handled)). Average risk is
+**6. Recommendation.** Lexicographic, as specified, with two deliberate guards in front:
+routes missing forecasts for more than 10 % of their length rank last, and **fewest No Travel
+miles** comes first (see [edge cases](#edge-cases-handled)). Missing data is never read as
+"safe". Average risk is
 distance-weighted (Low = 0 … No Travel = 4). Travel time is wall-clock time including
 mandatory stops. The response says *why* each other route lost, e.g. *"Fewer Severe miles than
 Route A (0.0 mi vs 50.0 mi)"*. Status is `clear`, `caution`, `no_safe_route` (suggests delaying)
@@ -156,13 +158,16 @@ selected hour (driving, on break, resting, arrived) are drawn on top.
 | 8 | Float noise in ranking | 12.5 vs 12.500001 Severe miles decides | Every criterion is quantised with a tolerance, so ordering is stable and transitive |
 | 9 | Heat-map correctness | KDE heat map shows sample *density*, not weather | Value raster on a regular grid; Mercator-even rows; soft corridor mask |
 | 10 | Weather API quotas | Hundreds of single-point calls per plan | Lattice snapping, per-day caching, batched multi-location requests, parallelism, per-batch degradation |
-| 11 | Partial or total weather outage | Missing data silently reads as "Low" | Missing checkpoints are "No data", excluded from scoring and flagged; a total outage is a 503, never a false "all clear" |
+| 11 | Partial or total weather outage | Missing miles count as 0 Severe/High, so a route with *no data* "wins" | Missing checkpoints are "No data"; a route missing > 10 % of its forecast ranks last, small gaps downgrade "clear" to "caution", a total outage is a 503; never a false "all clear" |
 | 12 | Forecast horizon / far departures | Garbage or crashes | Departure limited to now … +7 days; checkpoints beyond the horizon flagged |
 | 13 | Truck router distance cap / outage | Error | Falls back to OSRM (car + truck speed cap), labelled in the plan |
 | 14 | Unroutable via points (lakes, mountains) | Error | Skipped individually |
 | 15 | Same / tiny origin–destination, huge trips | Undefined | Validation with clear messages (≥ 1 mile apart; checkpoint budget per route) |
 | 16 | Overweight loads | Ignored | Gross weight sent to the router; warning above 80,000 lb gross |
 | 17 | Wind gusts vs sustained wind | Implicit | `WIND_BASIS=sustained` by default (literal spec); `gust` is one setting away; gusts are always shown |
+| 18 | `"NaN"` / `"Infinity"` in JSON numbers | DRF accepts them and NaN slips past min/max checks (500s, load rules silently skipped) | Every numeric field rejects non-finite values with a 400 |
+| 19 | Displayed values next to their band | 34.96 mph rounds to "35 mph → Moderate" | Values are truncated, never rounded up across a threshold |
+| 20 | Platform health checks | Probe uses an internal host and plain HTTP, so Django rejects or redirects it and the deploy fails | `/api/health` is answered by the first middleware, before host validation and HTTPS redirects |
 
 ---
 
@@ -266,7 +271,7 @@ cd backend  && pytest && ruff check . && ruff format --check .
 cd frontend && npm test && npm run lint && npm run format:check && npm run build
 ```
 
-- **151 backend tests**, by layer:
+- **166 backend tests**, by layer:
   - risk band boundaries and every load-rule edge
   - scalar vs. vectorised classification equivalence on 2,000 random samples
   - HOS schedules, checkpoint generation and coverage
@@ -276,8 +281,9 @@ cd frontend && npm test && npm run lint && npm run format:check && npm run build
   - provider adapters against recorded-shape payloads
   - route-option fallback and de-duplication
   - planner end to end with fakes
-  - the HTTP contract
-- **Frontend tests** cover polyline decoding, mile/position interpolation, truck state over
+  - the HTTP contract (incl. CORS preflight and non-finite input)
+  - regressions found by an independent review
+- **17 frontend tests** cover polyline decoding, mile/position interpolation, truck state over
   time (driving / break / arrived), heat-map frame interpolation, masking and colour ramps.
 - CI runs all of the above on every push.
 
@@ -285,18 +291,13 @@ cd frontend && npm test && npm run lint && npm run format:check && npm run build
 
 ## Deployment
 
-The `Dockerfile` builds the SPA and serves it from Django (WhiteNoise) next to the API, so
-the app is one service on one origin with no CORS.
+| Part | Hosted on | Configuration |
+|---|---|---|
+| Frontend (React build) | Vercel | [`frontend/vercel.json`](frontend/vercel.json) |
+| API (Django + Gunicorn) | Render | [`render.yaml`](render.yaml) |
 
-- **Render:** *New → Blueprint →* select the repo (`render.yaml` generates the secret key and
-  sets the allowed hosts). The free tier is enough.
-- **Any container host:** `docker build -t wx-routing . && docker run -p 8000:8000 -e
-  DJANGO_SECRET_KEY=… -e DJANGO_ALLOWED_HOSTS=your.host wx-routing`.
-- **Split hosting** (e.g. SPA on Vercel/Netlify): build with `VITE_API_BASE_URL=https://api…`
-  and set `CORS_ALLOWED_ORIGINS` on the API.
-
-Production runs Gunicorn with threaded workers, because requests are I/O-bound on upstream
-APIs.
+The frontend reaches the API through `VITE_API_BASE_URL`, and the API accepts the frontend's
+origin through `CORS_ALLOWED_ORIGINS`.
 
 ---
 
