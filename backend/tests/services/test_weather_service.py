@@ -90,3 +90,24 @@ def test_non_utc_instants_are_normalised():
     local = datetime(2026, 11, 18, 7, 30, tzinfo=ZoneInfo("America/Denver"))  # 14:30 UTC
     (cond,) = svc.conditions_at([(LatLon(39.7, -104.9), local)]).conditions
     assert cond.wind_mph == pytest.approx(14.5)
+
+
+def test_slow_provider_is_cut_off_at_the_deadline():
+    import time
+
+    class SlowProvider(FakeWeatherProvider):
+        def fetch_days(self, points, start, end):
+            time.sleep(2)
+            return super().fetch_days(points, start, end)
+
+    svc = WeatherService(
+        SlowProvider(hourly_wind),
+        DictCache(),
+        WeatherServiceConfig(deadline_s=0.2),
+        lambda: FIXED_NOW,
+    )
+    started = time.perf_counter()
+    lookup = svc.conditions_at([(LatLon(39.7, -104.9), FIXED_NOW)])
+    assert time.perf_counter() - started < 1.5
+    assert lookup.conditions == [None]
+    assert "too slowly" in lookup.warnings[0]

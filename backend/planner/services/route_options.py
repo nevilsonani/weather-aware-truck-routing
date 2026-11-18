@@ -20,8 +20,9 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import time
 from collections.abc import Sequence
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, wait
 from dataclasses import dataclass, field
 
 import numpy as np
@@ -48,6 +49,9 @@ class RouteSearchConfig:
     min_via_offset_m: float = 15_000.0
     max_via_offset_m: float = 200_000.0
     max_parallel_requests: int = 2
+    # Time allowed for forcing extra alternatives; past it the plan goes ahead with the routes
+    # found so far (the native ones are always kept).
+    via_budget_s: float = 20.0
     cache_ttl_s: int = 60 * 60
 
 
@@ -106,10 +110,12 @@ class RouteOptionsService:
         for route in sorted(native, key=lambda r: r.driving_s):
             self._consider(route, accepted)
 
+        deadline = time.monotonic() + self.config.via_budget_s
         for batch in self._via_batches(accepted[0], origin, destination):
-            if len(accepted) >= target:
+            remaining = deadline - time.monotonic()
+            if len(accepted) >= target or remaining <= 0:
                 break
-            for route in self._route_via(provider, origin, destination, vehicle, batch):
+            for route in self._route_via(provider, origin, destination, vehicle, batch, remaining):
                 if len(accepted) >= target:
                     break
                 self._consider(route, accepted)
@@ -171,6 +177,7 @@ class RouteOptionsService:
         destination: LatLon,
         vehicle: VehicleProfile,
         vias: list[LatLon],
+        timeout_s: float,
     ) -> list[DrivingRoute]:
         def request(via: LatLon) -> DrivingRoute | None:
             try:
@@ -180,8 +187,13 @@ class RouteOptionsService:
                 return None
             return routes[0] if routes else None
 
-        with ThreadPoolExecutor(max_workers=self.config.max_parallel_requests) as pool:
-            results = list(pool.map(request, vias))
+        pool = ThreadPoolExecutor(max_workers=self.config.max_parallel_requests)
+        futures = [pool.submit(request, via) for via in vias]
+        done, pending = wait(futures, timeout=timeout_s)
+        pool.shutdown(wait=False, cancel_futures=True)  # late candidates are simply skipped
+        if pending:
+            logger.info("%d via candidate(s) skipped: route search budget used up", len(pending))
+        results = [f.result() for f in futures if f in done]
         return sorted((r for r in results if r is not None), key=lambda r: r.driving_s)
 
     def _cache_key(self, origin: LatLon, destination: LatLon, vehicle: VehicleProfile) -> str:

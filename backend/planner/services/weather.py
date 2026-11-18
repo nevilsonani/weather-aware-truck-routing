@@ -16,7 +16,7 @@ from __future__ import annotations
 import logging
 from collections import defaultdict
 from collections.abc import Callable, Mapping, Sequence
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, wait
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, timedelta
 
@@ -41,6 +41,9 @@ class WeatherServiceConfig:
     cache_ttl_s: int = 30 * 60  # forecast models refresh roughly hourly
     batch_size: int = 100
     max_workers: int = 4
+    # Upper bound on waiting for the provider in one lookup. Late batches count as missing
+    # data (with a warning) so a slow or throttling provider can never hang a request.
+    deadline_s: float = 25.0
 
 
 @dataclass
@@ -201,18 +204,32 @@ class WeatherService:
             len(jobs),
         )
         to_cache: dict[str, DayForecast] = {}
-        with ThreadPoolExecutor(max_workers=min(self.config.max_workers, len(jobs))) as pool:
-            futures = [(job, pool.submit(self._fetch, *job)) for job in jobs]
-            for (cells, _start, _end), future in futures:
-                try:
-                    responses = future.result()
-                except UpstreamUnavailable as exc:
-                    result.warnings.add(f"Weather data partially unavailable: {exc.message}")
-                    continue
-                for cell, by_day in zip(cells, responses, strict=True):
-                    for day, record in by_day.items():
-                        result.days[(cell, day)] = record
-                        to_cache[self._cache_key(cell, day)] = record
+        pool = ThreadPoolExecutor(max_workers=min(self.config.max_workers, len(jobs)))
+        futures = [(job, pool.submit(self._fetch, *job)) for job in jobs]
+        done, pending = wait([f for _, f in futures], timeout=self.config.deadline_s)
+        pool.shutdown(wait=False, cancel_futures=True)  # never block the request on stragglers
+        if pending:
+            logger.warning(
+                "Weather: %d of %d request(s) missed the %.0f s deadline",
+                len(pending),
+                len(jobs),
+                self.config.deadline_s,
+            )
+            result.warnings.add(
+                "The weather service responded too slowly; some forecasts are missing."
+            )
+        for (cells, _start, _end), future in futures:
+            if future not in done:
+                continue
+            try:
+                responses = future.result()
+            except UpstreamUnavailable as exc:
+                result.warnings.add(f"Weather data partially unavailable: {exc.message}")
+                continue
+            for cell, by_day in zip(cells, responses, strict=True):
+                for day, record in by_day.items():
+                    result.days[(cell, day)] = record
+                    to_cache[self._cache_key(cell, day)] = record
         if to_cache:
             self.cache.set_many(to_cache, timeout=self.config.cache_ttl_s)
         return result

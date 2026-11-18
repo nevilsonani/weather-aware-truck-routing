@@ -78,3 +78,18 @@ def test_all_providers_down_raises_last_error():
     svc = service(FakeRoutingProvider(fail_with=UpstreamUnavailable("down")))
     with pytest.raises(UpstreamUnavailable, match="down"):
         svc.find(ORIGIN, DEST, VEHICLE)
+
+
+def test_via_point_search_respects_its_time_budget():
+    import time
+
+    class SlowVias(FakeRoutingProvider):
+        def route(self, waypoints, vehicle, *, alternatives=0):
+            if len(waypoints) == 3:
+                time.sleep(1.5)
+            return super().route(waypoints, vehicle, alternatives=alternatives)
+
+    started = time.perf_counter()
+    options = service(SlowVias(native_alternatives=0), via_budget_s=0.2).find(ORIGIN, DEST, VEHICLE)
+    assert time.perf_counter() - started < 1.2
+    assert len(options.routes) == 1  # the native route is kept; slow candidates are skipped

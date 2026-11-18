@@ -29,9 +29,11 @@ class HttpConfig:
 class HttpClient:
     """Thin wrapper over a pooled ``requests.Session``.
 
-    Connection failures and 502/503/504 are retried with exponential backoff. Read timeouts
-    are *not* retried (a slow upstream would only multiply the wait), and neither is 429:
-    rate limits need a longer pause than a request should block for, so callers degrade.
+    Connection failures and 502/503/504 are retried with short exponential backoff. Read
+    timeouts are *not* retried (a slow upstream would only multiply the wait), and neither is
+    429. ``Retry-After`` is deliberately ignored: by default urllib3 sleeps for whatever a
+    rate-limited server asks (a minute, or hours for a daily quota) before retrying, which
+    silently hangs the request. Rate limits fail fast and callers degrade instead.
     """
 
     def __init__(self, service: str, config: HttpConfig | None = None) -> None:
@@ -44,6 +46,7 @@ class HttpClient:
             status_forcelist=(502, 503, 504),
             allowed_methods=frozenset({"GET", "POST"}),
             raise_on_status=False,
+            respect_retry_after_header=False,
         )
         adapter = HTTPAdapter(
             max_retries=retry,
@@ -63,13 +66,18 @@ class HttpClient:
         except requests.RequestException as exc:
             logger.warning("%s request failed: %s", self.service, exc)
             raise UpstreamUnavailable(f"{self.service} is unreachable") from exc
-        logger.info(
-            "%s %s %s -> %s in %.0f ms",
+        level = logging.WARNING if response.status_code == 429 else logging.INFO
+        logger.log(
+            level,
+            "%s %s %s -> %s in %.0f ms%s",
             self.service,
             method,
             url.split("?")[0],
             response.status_code,
             (time.perf_counter() - started) * 1000,
+            f" (Retry-After: {response.headers['Retry-After']})"
+            if "Retry-After" in response.headers
+            else "",
         )
         return response
 
@@ -80,9 +88,23 @@ class HttpClient:
         return self.request("POST", url, **kwargs)
 
 
+def _reason(response: requests.Response) -> str:
+    """The provider's own explanation, e.g. Open-Meteo's ``{"reason": "Daily API ..."}``."""
+    try:
+        body = response.json()
+    except ValueError:
+        return response.text.strip()[:200]
+    if isinstance(body, dict):
+        return str(body.get("reason") or body.get("error") or body.get("message") or "")[:200]
+    return ""
+
+
 def json_or_raise(response: requests.Response, service: str) -> Any:
     if response.status_code == 429:
-        raise UpstreamUnavailable(f"{service} rate limit reached, please retry shortly")
+        reason = _reason(response)
+        raise UpstreamUnavailable(
+            f"{service} rate limit reached" + (f": {reason}" if reason else ", retry shortly")
+        )
     if response.status_code >= 500:
         raise UpstreamUnavailable(f"{service} returned HTTP {response.status_code}")
     try:

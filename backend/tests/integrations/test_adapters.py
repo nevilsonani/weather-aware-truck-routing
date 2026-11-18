@@ -262,3 +262,41 @@ def test_valhalla_without_maneuver_times_spreads_trip_time_by_length():
     (route,) = ValhallaRoutingProvider("https://valhalla.test", HTTP).route([A, B], VEHICLE)
     assert route.driving_s == pytest.approx(3600)
     assert 0 < route.driving_time_at(np.array([route.distance_m / 2]))[0] < 3600
+
+
+def test_rate_limited_upstream_fails_fast_instead_of_sleeping_on_retry_after():
+    # Production incident: Open-Meteo answered 429 + Retry-After to the host's shared IP, and
+    # urllib3 slept for it before retrying, hanging plans for minutes with no log line.
+    import threading
+    import time
+    from http.server import BaseHTTPRequestHandler, HTTPServer
+
+    hits = []
+
+    class RateLimited(BaseHTTPRequestHandler):
+        def do_GET(self):
+            hits.append(1)
+            body = b'{"error": true, "reason": "Daily API request limit exceeded."}'
+            self.send_response(429)
+            self.send_header("Retry-After", "30")
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, *args):
+            pass
+
+    server = HTTPServer(("127.0.0.1", 0), RateLimited)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    try:
+        provider = OpenMeteoWeatherProvider(
+            HttpClient("open-meteo"), base_url=f"http://127.0.0.1:{server.server_port}/v1/forecast"
+        )
+        started = time.perf_counter()
+        with pytest.raises(UpstreamUnavailable, match="Daily API request limit exceeded"):
+            provider.fetch_days([A], date(2026, 11, 18), date(2026, 11, 18))
+        assert time.perf_counter() - started < 2
+        assert len(hits) == 1
+    finally:
+        server.shutdown()
