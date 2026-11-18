@@ -1,0 +1,33 @@
+[project]
+name = "weather-aware-truck-routing-backend"
+version = "1.0.0"
+description = "Django API that plans weather-aware truck routes."
+requires-python = ">=3.11"
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+extend-exclude = [".venv", "staticfiles"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "SIM", "RUF", "DJ", "PT"]
+ignore = ["RUF012"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["PT018", "RUF005", "RUF007"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["api", "config", "planner"]
+
+[tool.pytest.ini_options]
+DJANGO_SETTINGS_MODULE = "config.settings"
+python_files = ["test_*.py"]
+testpaths = ["tests"]
+addopts = "-q --strict-markers"
+filterwarnings = [
+    # WhiteNoise warns when collectstatic has not been run; irrelevant for API tests.
+    "ignore:No directory at:UserWarning",
+]
+markers = [
+    "live: hits real third-party APIs (deselected by default; run with -m live)",
+]

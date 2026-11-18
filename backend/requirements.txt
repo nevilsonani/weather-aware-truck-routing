@@ -1,0 +1,2 @@
+# Production dependencies (used by hosting platforms that look for requirements.txt).
+-r requirements/base.txt

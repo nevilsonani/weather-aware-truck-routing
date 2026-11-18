@@ -1,0 +1,18 @@
+# Render blueprint: one Docker web service (SPA + API on one origin).
+# Deploy: Render dashboard → New → Blueprint → select this repository.
+services:
+  - type: web
+    name: weather-aware-truck-routing
+    runtime: docker
+    plan: free
+    healthCheckPath: /api/health
+    envVars:
+      - key: DJANGO_SECRET_KEY
+        generateValue: true
+      - key: DJANGO_ALLOWED_HOSTS
+        value: .onrender.com
+      - key: WEB_CONCURRENCY
+        value: "2"
+      # Optional: a shared cache across workers/instances.
+      # - key: REDIS_URL
+      #   fromService: { type: redis, name: wx-cache, property: connectionString }
