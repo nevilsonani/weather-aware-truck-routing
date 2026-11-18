@@ -178,6 +178,8 @@ PLANNER = {
     "OSRM_URL": env("OSRM_URL", "https://router.project-osrm.org"),
     "OPEN_METEO_URL": env("OPEN_METEO_URL"),
     "OPEN_METEO_API_KEY": env("OPEN_METEO_API_KEY"),
+    # Shared secret for the Cloudflare Worker proxy (infra/open-meteo-proxy), sent as a header.
+    "OPEN_METEO_PROXY_KEY": env("OPEN_METEO_PROXY_KEY"),
     "PHOTON_URL": env("PHOTON_URL", "https://photon.komoot.io"),
     "NOMINATIM_URL": env("NOMINATIM_URL", "https://nominatim.openstreetmap.org"),
     "WIND_BASIS": env("WIND_BASIS", "sustained"),

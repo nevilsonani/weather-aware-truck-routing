@@ -7,6 +7,12 @@ Variable choices matter:
 * snow = ``snowfall`` in inches of snow per hour (not water equivalent), which is what the
   in/hr snowfall thresholds in the risk table refer to.
 * units are requested in mph / inches, and times as UTC unix timestamps.
+
+Hosting note: Open-Meteo's free tier limits calls per IP address, and platforms such as Render
+share outbound IPs between many apps, so the shared daily quota can run out. ``base_url`` can
+point at the Cloudflare Worker in ``infra/open-meteo-proxy`` (Open-Meteo counts Worker traffic
+per Cloudflare account); ``proxy_key`` is then sent as ``X-Proxy-Key`` so only this API can use
+that Worker.
 """
 
 from __future__ import annotations
@@ -31,10 +37,18 @@ class OpenMeteoWeatherProvider:
     name = "open-meteo"
     max_forecast_days = 16
 
-    def __init__(self, http: HttpClient, *, base_url: str | None = None, api_key: str = "") -> None:
+    def __init__(
+        self,
+        http: HttpClient,
+        *,
+        base_url: str | None = None,
+        api_key: str = "",
+        proxy_key: str = "",
+    ) -> None:
         self.http = http
         self.api_key = api_key
         self.url = base_url or (CUSTOMER_URL if api_key else PUBLIC_URL)
+        self.headers = {"X-Proxy-Key": proxy_key} if proxy_key else {}
 
     def fetch_days(
         self, points: Sequence[LatLon], start: date, end: date
@@ -55,7 +69,7 @@ class OpenMeteoWeatherProvider:
         if self.api_key:
             params["apikey"] = self.api_key
 
-        response = self.http.get(self.url, params=params)
+        response = self.http.get(self.url, params=params, headers=self.headers)
         payload = json_or_raise(response, "Open-Meteo")
         if response.status_code >= 400 or (isinstance(payload, dict) and payload.get("error")):
             reason = payload.get("reason", "unknown error") if isinstance(payload, dict) else ""

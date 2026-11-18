@@ -170,6 +170,7 @@ selected hour (driving, on break, resting, arrived) are drawn on top.
 | 18 | `"NaN"` / `"Infinity"` in JSON numbers | DRF accepts them and NaN slips past min/max checks (500s, load rules silently skipped) | Every numeric field rejects non-finite values with a 400 |
 | 19 | Displayed values next to their band | 34.96 mph rounds to "35 mph → Moderate" | Values are truncated, never rounded up across a threshold |
 | 20 | Platform health checks | Probe uses an internal host and plain HTTP, so Django rejects or redirects it and the deploy fails | `/api/health` is answered by the first middleware, before host validation and HTTPS redirects |
+| 21 | Free weather quota on shared hosting IPs | Open-Meteo limits per IP; Render's outbound IPs are shared, so the quota is gone and plans hang on `Retry-After` sleeps | Rate limits fail fast with the provider's reason (never sleep on `Retry-After`), weather and route search have hard deadlines, and weather goes through a Cloudflare Worker, which Open-Meteo meters per account |
 
 ---
 
@@ -259,6 +260,7 @@ Every setting is an environment variable with a working default. The full list i
 | `TRUCK_TARE_WEIGHT_LBS` | `35000` | Added to the load to get gross weight for truck routing |
 | `REDIS_URL` | – | Shared cache for weather, place search and rate limits across workers and instances (in-process otherwise; a Redis outage only means cache misses) |
 | `OPEN_METEO_API_KEY` | – | Switches to Open-Meteo's commercial endpoint and quotas |
+| `OPEN_METEO_URL` / `OPEN_METEO_PROXY_KEY` | public API | Route weather calls through the Cloudflare Worker proxy, authenticated by a shared key |
 | `HEATMAP_MAX_CELLS` | `220` | Forecast locations per corridor heat map |
 
 Frontend (build time): `VITE_API_BASE_URL` (empty = same origin) and `VITE_MAP_STYLE_URL`
@@ -273,7 +275,7 @@ cd backend  && pytest && ruff check . && ruff format --check .
 cd frontend && npm test && npm run lint && npm run format:check && npm run build
 ```
 
-- **168 backend tests**, by layer:
+- **173 backend tests**, by layer:
   - risk band boundaries and every load-rule edge
   - scalar vs. vectorised classification equivalence on 2,000 random samples
   - HOS schedules, checkpoint generation and coverage
@@ -298,6 +300,7 @@ cd frontend && npm test && npm run lint && npm run format:check && npm run build
 | Frontend (React build) | Vercel | [`frontend/vercel.json`](frontend/vercel.json) |
 | API (Django + Gunicorn) | Render | [`render.yaml`](render.yaml) |
 | Shared cache (Redis-compatible Key Value, free) | Render | [`render.yaml`](render.yaml) |
+| Weather proxy (Worker, free) | Cloudflare | [`infra/open-meteo-proxy/worker.js`](infra/open-meteo-proxy/worker.js) |
 
 The frontend reaches the API through `VITE_API_BASE_URL`, and the API accepts the frontend's
 origin through `CORS_ALLOWED_ORIGINS`.
@@ -340,8 +343,9 @@ origin through `CORS_ALLOWED_ORIGINS`.
 - **Truck routing range.** The public Valhalla server caps truck routes at 1,500 km; longer
   trips use OSRM (car geometry, truck speed cap). Self-hosting Valhalla (or a commercial truck
   router) removes this; it only changes `VALHALLA_URL`.
-- **Free-tier APIs.** Open-Meteo, Valhalla, OSRM and Photon are fair-use services. Bursty use
-  can hit rate limits. The app degrades per batch with explicit warnings, and
-  `OPEN_METEO_API_KEY` / self-hosted routers lift the limits.
+- **Free-tier APIs.** Open-Meteo, Valhalla, OSRM and Photon are fair-use services. Open-Meteo's
+  free quota (10,000 calls/day) is metered per IP, which is why weather goes through the
+  Cloudflare Worker (metered per account). Each plan uses roughly 150–400 location-calls, so very
+  heavy use can still hit a limit; the app then degrades with explicit warnings.
 - **Forecast skill.** Hourly precipitation beyond ~3 days is low-skill. The 7-day departure
   window keeps the whole trip inside the 16-day forecast range.

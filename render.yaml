@@ -29,6 +29,10 @@ services:
       # Optional: allow Vercel preview deployments, e.g. ^https://weather-aware-truck-routing-.*\.vercel\.app$
       - key: CORS_ALLOWED_ORIGIN_REGEXES
         sync: false
+      # Weather through the Cloudflare Worker proxy (infra/open-meteo-proxy), set in the
+      # dashboard: OPEN_METEO_URL=https://<worker>.workers.dev/v1/forecast and
+      # OPEN_METEO_PROXY_KEY=<the Worker's PROXY_KEY secret>. Render's outbound IPs are shared,
+      # so Open-Meteo's per-IP free quota runs out; Worker traffic counts per Cloudflare account.
       # Shared cache for weather, place search and rate limits (the Key Value service below).
       - key: REDIS_URL
         fromService:

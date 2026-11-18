@@ -300,3 +300,20 @@ def test_rate_limited_upstream_fails_fast_instead_of_sleeping_on_retry_after():
         assert len(hits) == 1
     finally:
         server.shutdown()
+
+
+@responses.activate
+def test_proxy_url_and_key_are_used_when_configured():
+    responses.get("https://proxy.test/v1/forecast", json={"hourly": {}})
+    provider = OpenMeteoWeatherProvider(
+        HTTP, base_url="https://proxy.test/v1/forecast", proxy_key="s3cret"
+    )
+    provider.fetch_days([A], date(2026, 1, 1), date(2026, 1, 1))
+    assert responses.calls[0].request.headers["X-Proxy-Key"] == "s3cret"
+
+
+@responses.activate
+def test_no_proxy_header_without_a_key():
+    responses.get("https://api.open-meteo.com/v1/forecast", json={"hourly": {}})
+    OpenMeteoWeatherProvider(HTTP).fetch_days([A], date(2026, 1, 1), date(2026, 1, 1))
+    assert "X-Proxy-Key" not in responses.calls[0].request.headers

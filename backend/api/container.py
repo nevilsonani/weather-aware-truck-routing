@@ -87,6 +87,7 @@ def _build_services() -> Services:
             http("open-meteo", cfg["WEATHER_TIMEOUT_S"]),
             base_url=cfg["OPEN_METEO_URL"] or None,
             api_key=cfg["OPEN_METEO_API_KEY"],
+            proxy_key=cfg["OPEN_METEO_PROXY_KEY"],
         ),
         caches["default"],
         WeatherServiceConfig(
