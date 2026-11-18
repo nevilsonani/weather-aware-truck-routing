@@ -88,6 +88,7 @@ class WeatherService:
 
     def conditions_at(self, queries: Sequence[tuple[LatLon, datetime]]) -> WeatherLookup:
         """Conditions at each ``(point, instant)``; ``None`` where no forecast is available."""
+        queries = [(point, when.astimezone(UTC)) for point, when in queries]
         needs: dict[Cell, set[date]] = defaultdict(set)
         cells = [self._cell(point) for point, _ in queries]
         for cell, (_, when) in zip(cells, queries, strict=True):

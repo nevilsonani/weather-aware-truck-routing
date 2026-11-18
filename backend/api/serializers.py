@@ -3,6 +3,7 @@ than nested DRF serializers for payloads with hundreds of checkpoints and heat-m
 
 from __future__ import annotations
 
+import math
 from datetime import datetime
 
 import numpy as np
@@ -16,6 +17,18 @@ MAX_LOAD_LBS = 100_000
 SAMPLE_INTERVALS = (10, 25, 50)
 
 
+class FiniteFloatField(serializers.FloatField):
+    """DRF's FloatField accepts "NaN"/"Infinity", and NaN slips past min/max checks."""
+
+    default_error_messages = {"non_finite": "A finite number is required."}
+
+    def to_internal_value(self, data):
+        value = super().to_internal_value(data)
+        if not math.isfinite(value):
+            self.fail("non_finite")
+        return value
+
+
 def parse_iso_datetime(value: str, *, require_offset: bool) -> datetime:
     try:
         parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
@@ -27,8 +40,8 @@ def parse_iso_datetime(value: str, *, require_offset: bool) -> datetime:
 
 
 class EndpointSerializer(serializers.Serializer):
-    lat = serializers.FloatField(min_value=-90, max_value=90)
-    lon = serializers.FloatField(min_value=-180, max_value=180)
+    lat = FiniteFloatField(min_value=-90, max_value=90)
+    lon = FiniteFloatField(min_value=-180, max_value=180)
     label = serializers.CharField(max_length=200, required=False, allow_blank=True, default="")
 
 
@@ -51,7 +64,7 @@ class TripPlanRequestSerializer(serializers.Serializer):
             "what a driver means by '8 AM'. Omit for 'leave now'."
         ),
     )
-    load_weight_lbs = serializers.FloatField(min_value=0, max_value=MAX_LOAD_LBS)
+    load_weight_lbs = FiniteFloatField(min_value=0, max_value=MAX_LOAD_LBS)
     sample_interval_mi = serializers.ChoiceField(choices=SAMPLE_INTERVALS, default=25)
     apply_hos = serializers.BooleanField(
         default=True, help_text="Insert FMCSA hours-of-service breaks and rests into ETAs."
@@ -73,10 +86,10 @@ class TripPlanRequestSerializer(serializers.Serializer):
 
 
 class GridSerializer(serializers.Serializer):
-    west = serializers.FloatField(min_value=-180, max_value=180)
-    east = serializers.FloatField(min_value=-180, max_value=180)
-    south = serializers.FloatField(min_value=-90, max_value=90)
-    north = serializers.FloatField(min_value=-90, max_value=90)
+    west = FiniteFloatField(min_value=-180, max_value=180)
+    east = FiniteFloatField(min_value=-180, max_value=180)
+    south = FiniteFloatField(min_value=-90, max_value=90)
+    north = FiniteFloatField(min_value=-90, max_value=90)
     nx = serializers.IntegerField(min_value=1, max_value=2000)
     ny = serializers.IntegerField(min_value=1, max_value=2000)
     cells = serializers.ListField(
@@ -103,7 +116,7 @@ class HeatmapRequestSerializer(serializers.Serializer):
     departure = serializers.CharField(
         help_text="Departure instant with UTC offset (from the plan)."
     )
-    load_weight_lbs = serializers.FloatField(min_value=0, max_value=MAX_LOAD_LBS)
+    load_weight_lbs = FiniteFloatField(min_value=0, max_value=MAX_LOAD_LBS)
 
     def validate_departure(self, value: str) -> datetime:
         return parse_iso_datetime(value, require_offset=True)
@@ -116,8 +129,8 @@ class HeatmapRequestSerializer(serializers.Serializer):
 class PlaceSearchSerializer(serializers.Serializer):
     q = serializers.CharField(min_length=2, max_length=200, trim_whitespace=True)
     limit = serializers.IntegerField(min_value=1, max_value=10, default=6)
-    lat = serializers.FloatField(min_value=-90, max_value=90, required=False)
-    lon = serializers.FloatField(min_value=-180, max_value=180, required=False)
+    lat = FiniteFloatField(min_value=-90, max_value=90, required=False)
+    lon = FiniteFloatField(min_value=-180, max_value=180, required=False)
 
     def bias(self) -> LatLon | None:
         data = self.validated_data

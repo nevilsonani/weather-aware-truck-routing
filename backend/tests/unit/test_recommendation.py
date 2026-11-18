@@ -109,3 +109,30 @@ def test_build_profile_weights_by_covered_distance():
     assert profile.unknown_miles == pytest.approx(20)
     assert profile.average_risk == pytest.approx((0 * 10 + 2 * 30) / 40)
     assert profile.max_level == RiskLevel.HIGH
+
+
+def test_missing_forecast_is_not_treated_as_safe():
+    # Review finding: a route whose weather batch failed scored 0 High/Severe miles and won.
+    known_high = candidate("A", high=625, hours=10)
+    mostly_unknown = candidate("B", unknown=895, hours=9)
+    result = recommend([mostly_unknown, known_high])
+    assert result.route_id == "A"
+    assert result.comparisons[0].criterion.key == "weather_coverage"
+    assert "without forecast" in result.comparisons[0].text
+
+
+def test_recommended_route_with_large_gap_is_insufficient_data():
+    result = recommend([candidate("A", unknown=300), candidate("B", unknown=400)])
+    assert result.status == RecommendationStatus.INSUFFICIENT_DATA
+    assert "missing for" in result.headline
+    assert "fastest" not in result.headline
+
+
+def test_small_gap_downgrades_clear_to_caution():
+    result = recommend([candidate("A", unknown=20)])  # 20 of 520 mi, below the 10 % guard
+    assert result.status == RecommendationStatus.CAUTION
+    assert "had no forecast" in result.headline
+
+
+def test_status_ignores_sub_tolerance_slivers():
+    assert recommend([candidate("A", severe=0.04)]).status == RecommendationStatus.CLEAR

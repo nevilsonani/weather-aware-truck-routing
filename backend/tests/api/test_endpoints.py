@@ -68,7 +68,7 @@ def test_meta_exposes_rules_from_the_backend(client):
         "value": 1.0,
         "inclusive": False,
     }
-    assert body["ranking_criteria"][0] == "no_travel_miles"
+    assert body["ranking_criteria"][:2] == ["weather_coverage", "no_travel_miles"]
 
 
 def test_plan_contract(client):
@@ -187,3 +187,19 @@ def test_cors_preflight_for_configured_origin(client, settings):
         HTTP_ACCESS_CONTROL_REQUEST_HEADERS="content-type",
     )
     assert response["access-control-allow-origin"] == "https://wx-git-main.vercel.app"
+
+
+@pytest.mark.parametrize("value", ["NaN", "Infinity", "-Infinity"])
+def test_non_finite_numbers_are_rejected(client, value):
+    # Review finding: DRF FloatField accepts "NaN", which then slips past min/max checks.
+    plan = client.post("/api/v1/trips/plan", {**PLAN_BODY, "load_weight_lbs": value}, format="json")
+    assert plan.status_code == 400
+    assert "load_weight_lbs" in plan.json()["error"]["details"]
+
+    grid = {"west": -105, "east": -104, "south": 39, "north": 40, "nx": 2, "ny": 2, "cells": [0]}
+    heat = client.post(
+        "/api/v1/trips/heatmap",
+        {"grid": grid, "departure": "2026-11-18T12:00:00Z", "load_weight_lbs": value},
+        format="json",
+    )
+    assert heat.status_code == 400

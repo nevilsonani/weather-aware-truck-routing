@@ -125,3 +125,25 @@ def test_vectorised_classification_marks_missing_data_unknown():
         np.array([10.0, np.nan]), np.array([0.0, 0.0]), np.array([np.nan, 0.0]), 0
     )
     assert levels.tolist() == [UNKNOWN, UNKNOWN]
+
+
+def test_load_rules_are_order_independent_in_both_paths():
+    # Review finding: the vectorised path chained rules when HIGH->SEVERE ran before SEVERE->...
+    reversed_rules = RiskRules(load_rules=tuple(reversed(RULES.load_rules)))
+    wind = np.array([30.0, 40.0, 47.0, 56.0])
+    zeros = np.zeros(4)
+    for rules in (RULES, reversed_rules):
+        vector = rules.classify_many(wind, zeros, zeros, 50_000).tolist()
+        scalar = [int(rules.assess(conditions(wind=w), 50_000).level) for w in wind]
+        assert vector == scalar == [int(M), int(S), int(N), int(N)]
+
+
+@pytest.mark.parametrize(
+    ("cond", "expected"),
+    [
+        (conditions(wind=34.96), "Wind 34.9 mph → Moderate"),
+        (conditions(rain=0.2499), "Rain 0.249 in/hr → Moderate"),
+    ],
+)
+def test_explanations_never_round_across_a_threshold(cond, expected):
+    assert expected in RULES.explain(RULES.assess(cond, 0), cond, 0)

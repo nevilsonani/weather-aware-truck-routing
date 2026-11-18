@@ -113,11 +113,14 @@ class ValhallaRoutingProvider:
             total += len(new_vertices)
 
         coords = np.concatenate(coords_parts)
-        durations = distribute_span_durations(geo.segment_lengths_m(coords), spans)
-        # Maneuver times can omit tiny amounts; reconcile with the trip total.
+        seg_lengths = geo.segment_lengths_m(coords)
+        durations = distribute_span_durations(seg_lengths, spans)
+        # Maneuver times can omit small amounts (or be missing): reconcile with the trip total.
         reported_time = float(trip["summary"]["time"])
         if durations.sum() > 0:
             durations *= reported_time / durations.sum()
+        elif seg_lengths.sum() > 0:
+            durations = seg_lengths / seg_lengths.sum() * reported_time
         return build_route(
             provider=self.name,
             coords=coords,

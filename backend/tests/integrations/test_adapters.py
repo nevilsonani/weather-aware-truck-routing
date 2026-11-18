@@ -251,3 +251,14 @@ def test_photon_labels_dedupes_and_falls_back_to_nominatim():
 )
 def test_road_name_normalisation(raw, expected):
     assert normalize_road_name(raw) == expected
+
+
+@responses.activate
+def test_valhalla_without_maneuver_times_spreads_trip_time_by_length():
+    trip = valhalla_trip(3600)
+    for m in trip["legs"][0]["maneuvers"]:
+        m["time"] = 0.0
+    responses.post("https://valhalla.test/route", json={"trip": trip})
+    (route,) = ValhallaRoutingProvider("https://valhalla.test", HTTP).route([A, B], VEHICLE)
+    assert route.driving_s == pytest.approx(3600)
+    assert 0 < route.driving_time_at(np.array([route.distance_m / 2]))[0] < 3600

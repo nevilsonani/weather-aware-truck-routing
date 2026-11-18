@@ -1,17 +1,20 @@
 """Route risk profiles and the recommendation policy.
 
-Policy (from the specification, applied lexicographically):
+Policy (from the specification, applied lexicographically), with two guards in front:
 
-0. Fewest **No Travel** miles. The spec's list starts at "fewest Severe miles", but read
+a. **Weather coverage.** Miles without a forecast (provider outage, horizon) are *unknown*, not
+   safe. A route missing data for more than ``MAX_UNKNOWN_SHARE`` of its length ranks after
+   every adequately covered route; otherwise a data gap would look like "0 Severe miles".
+b. Fewest **No Travel** miles. The spec's list starts at "fewest Severe miles", but read
    literally that would prefer a route with 50 No-Travel miles and 0 Severe miles over one with
    10 Severe miles. No Travel is strictly worse than Severe, so it is compared first.
 1. Fewest Severe miles
 2. Fewest High miles
-3. Lowest average risk (distance-weighted, Low=0 ... No Travel=4)
+3. Lowest average risk (distance-weighted over known miles, Low=0 ... No Travel=4)
 4. Shortest travel time (wall-clock, including mandatory HOS stops)
 
-Each criterion has a tolerance and values are quantised before comparison, so float noise
-(e.g. 12.5 vs 12.500001 miles) can never decide a ranking and the ordering stays transitive.
+Values are quantised to a per-criterion tolerance before comparison, which keeps the ordering
+transitive and stops ordinary float noise (12.5 vs 12.500001 miles) from deciding a ranking.
 """
 
 from __future__ import annotations
@@ -24,6 +27,9 @@ from enum import StrEnum
 from .checkpoints import Checkpoint
 from .risk import RiskAssessment, RiskLevel
 from .units import meters_to_miles
+
+MAX_UNKNOWN_SHARE = 0.10  # more missing forecast than this and a route cannot be trusted
+MILES_TOLERANCE = 0.1
 
 
 @dataclass(frozen=True)
@@ -39,6 +45,19 @@ class RiskProfile:
     @property
     def known_miles(self) -> float:
         return sum(self.miles_by_level.values())
+
+    @property
+    def unknown_share(self) -> float:
+        total = self.known_miles + self.unknown_miles
+        return self.unknown_miles / total if total > 0 else 1.0
+
+    def has(self, level: RiskLevel) -> bool:
+        """At least one tolerance unit of ``level`` miles (consistent with the ranking)."""
+        return _significant(self.miles(level))
+
+
+def _significant(miles: float) -> bool:
+    return round(miles / MILES_TOLERANCE) > 0
 
 
 def build_profile(
@@ -79,10 +98,16 @@ class Criterion:
     tolerance: float
     extract: Callable[[RouteCandidate], float | None]
     fmt: Callable[[float | None], str]
+    # When set, only "above the threshold or not" matters (a pass/fail guard, not a scale).
+    threshold: float | None = None
 
     def quantize(self, candidate: RouteCandidate) -> float:
         value = self.extract(candidate)
-        return math.inf if value is None else round(value / self.tolerance)
+        if value is None:
+            return math.inf
+        if self.threshold is not None:
+            return float(value > self.threshold)
+        return round(value / self.tolerance)
 
 
 def format_miles(value: float | None) -> str:
@@ -101,25 +126,37 @@ def _format_score(value: float | None) -> str:
     return "n/a" if value is None else f"{value:.2f}"
 
 
+def _format_missing(value: float | None) -> str:
+    return "n/a" if value is None else f"{value:.0%} without forecast"
+
+
 CRITERIA: tuple[Criterion, ...] = (
+    Criterion(
+        "weather_coverage",
+        "more complete weather data",
+        1.0,
+        lambda c: c.profile.unknown_share,
+        _format_missing,
+        threshold=MAX_UNKNOWN_SHARE,
+    ),
     Criterion(
         "no_travel_miles",
         "fewer No Travel miles",
-        0.1,
+        MILES_TOLERANCE,
         lambda c: c.profile.miles(RiskLevel.NO_TRAVEL),
         format_miles,
     ),
     Criterion(
         "severe_miles",
         "fewer Severe miles",
-        0.1,
+        MILES_TOLERANCE,
         lambda c: c.profile.miles(RiskLevel.SEVERE),
         format_miles,
     ),
     Criterion(
         "high_miles",
         "fewer High miles",
-        0.1,
+        MILES_TOLERANCE,
         lambda c: c.profile.miles(RiskLevel.HIGH),
         format_miles,
     ),
@@ -141,10 +178,10 @@ CRITERIA: tuple[Criterion, ...] = (
 
 
 class RecommendationStatus(StrEnum):
-    CLEAR = "clear"  # nothing above Moderate on the recommended route
-    CAUTION = "caution"  # High or Severe stretches remain
+    CLEAR = "clear"  # fully forecast and nothing above Moderate on the recommended route
+    CAUTION = "caution"  # High/Severe stretches remain, or small forecast gaps
     NO_SAFE_ROUTE = "no_safe_route"  # every route crosses No Travel conditions
-    INSUFFICIENT_DATA = "insufficient_data"  # no weather data for the recommended route
+    INSUFFICIENT_DATA = "insufficient_data"  # too much of the recommended route lacks forecasts
 
 
 @dataclass(frozen=True)
@@ -211,11 +248,13 @@ def _compare(best: RouteCandidate, other: RouteCandidate) -> Comparison:
 
 def _status(best: RouteCandidate) -> RecommendationStatus:
     profile = best.profile
-    if profile.average_risk is None:
+    if profile.average_risk is None or profile.unknown_share > MAX_UNKNOWN_SHARE:
         return RecommendationStatus.INSUFFICIENT_DATA
-    if profile.miles(RiskLevel.NO_TRAVEL) > 0:
+    if profile.has(RiskLevel.NO_TRAVEL):
         return RecommendationStatus.NO_SAFE_ROUTE
-    if profile.miles(RiskLevel.SEVERE) > 0 or profile.miles(RiskLevel.HIGH) > 0:
+    if profile.has(RiskLevel.SEVERE) or profile.has(RiskLevel.HIGH):
+        return RecommendationStatus.CAUTION
+    if _significant(profile.unknown_miles):  # small gap: never claim "clear" unverified
         return RecommendationStatus.CAUTION
     return RecommendationStatus.CLEAR
 
@@ -230,12 +269,22 @@ def _headline(best: RouteCandidate, status: RecommendationStatus, count: int) ->
             "consider delaying departure."
         )
     if status is RecommendationStatus.INSUFFICIENT_DATA:
-        return f"{best.label} is the fastest option, but weather data is unavailable for it."
-    if status is RecommendationStatus.CAUTION:
+        return (
+            f"Weather forecasts are missing for {p.unknown_share:.0%} of {best.label}, so its "
+            "risk cannot be fully assessed. Re-plan shortly before relying on it."
+        )
+    gap = (
+        f" {format_miles(p.unknown_miles)} had no forecast and are not scored."
+        if _significant(p.unknown_miles)
+        else ""
+    )
+    if p.has(RiskLevel.SEVERE) or p.has(RiskLevel.HIGH):
         exposure = ", ".join(
             f"{format_miles(p.miles(level))} {level.label}"
             for level in (RiskLevel.SEVERE, RiskLevel.HIGH)
-            if p.miles(level) > 0
+            if p.has(level)
         )
-        return f"{best.label} has the lowest weather exposure, but expect {exposure}."
+        return f"{best.label} has the lowest weather exposure, but expect {exposure}.{gap}"
+    if gap:
+        return f"{best.label} shows no High, Severe or No Travel conditions where forecast.{gap}"
     return f"{best.label} is clear of High, Severe and No Travel conditions."

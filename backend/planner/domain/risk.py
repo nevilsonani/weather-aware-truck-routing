@@ -16,6 +16,7 @@ downgrade it. A checkpoint's overall level is the worst of wind, rain and snow.
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from enum import IntEnum
 
@@ -174,10 +175,16 @@ class RiskRules:
     def escalate_wind(
         self, wind_level: RiskLevel, load_lbs: float
     ) -> tuple[RiskLevel, LoadRule | None]:
-        for rule in self.load_rules:
-            if rule.applies(wind_level, load_lbs) and rule.escalate_to > wind_level:
-                return rule.escalate_to, rule
-        return wind_level, None
+        """Strongest applicable rule, judged on the *unescalated* level (order-independent)."""
+        applicable = [
+            rule
+            for rule in self.load_rules
+            if rule.applies(wind_level, load_lbs) and rule.escalate_to > wind_level
+        ]
+        if not applicable:
+            return wind_level, None
+        strongest = max(applicable, key=lambda rule: rule.escalate_to)
+        return strongest.escalate_to, strongest
 
     def assess(self, conditions: WeatherConditions, load_lbs: float) -> RiskAssessment:
         wind_mph = self.wind_value(conditions)
@@ -199,10 +206,11 @@ class RiskRules:
         self, wind_mph: np.ndarray, rain_in: np.ndarray, snow_in: np.ndarray, load_lbs: float
     ) -> np.ndarray:
         """Vectorised overall level for same-shaped arrays (``UNKNOWN`` where data is missing)."""
-        wind = self.wind.classify_many(wind_mph)
-        for rule in self.load_rules:
+        base = self.wind.classify_many(wind_mph)
+        wind = base.copy()
+        for rule in self.load_rules:  # masks use the base level, so rules never chain
             if load_lbs > rule.load_over_lbs:
-                mask = wind == int(rule.wind_level)
+                mask = base == int(rule.wind_level)
                 wind[mask] = np.maximum(wind[mask], int(rule.escalate_to))
         levels = np.maximum.reduce(
             [wind, self.rain.classify_many(rain_in), self.snow.classify_many(snow_in)]
@@ -221,7 +229,7 @@ class RiskRules:
                 "gusts" if self.wind_basis == "gust" and conditions.gust_mph is not None else "wind"
             )
             text = (
-                f"{basis.capitalize()} {assessment.wind_mph_used:.0f} mph → "
+                f"{basis.capitalize()} {_truncate(assessment.wind_mph_used, 1)} mph → "
                 f"{assessment.wind_base.label}"
             )
             if assessment.load_rule:
@@ -232,7 +240,17 @@ class RiskRules:
                 )
             reasons.append(text)
         if assessment.rain > RiskLevel.LOW:
-            reasons.append(f"Rain {conditions.rain_in_hr:.2f} in/hr → {assessment.rain.label}")
+            reasons.append(
+                f"Rain {_truncate(conditions.rain_in_hr, 3)} in/hr → {assessment.rain.label}"
+            )
         if assessment.snow > RiskLevel.LOW:
-            reasons.append(f"Snow {conditions.snow_in_hr:.2f} in/hr → {assessment.snow.label}")
+            reasons.append(
+                f"Snow {_truncate(conditions.snow_in_hr, 3)} in/hr → {assessment.snow.label}"
+            )
         return reasons or ["All conditions within Low thresholds"]
+
+
+def _truncate(value: float, digits: int) -> str:
+    """Format without rounding up, so 34.96 mph never reads "35.0 mph → Moderate"."""
+    factor = 10**digits
+    return f"{math.floor(value * factor) / factor:.{digits}f}"

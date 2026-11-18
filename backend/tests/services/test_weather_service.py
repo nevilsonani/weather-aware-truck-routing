@@ -81,3 +81,12 @@ def test_hourly_frames_cover_requested_window():
     assert frames.wind_mph.shape == (5, 2)
     assert frames.wind_mph[:, 0].tolist() == [22, 23, 0, 1, 2]
     assert not np.isnan(frames.rain_in).any()
+
+
+def test_non_utc_instants_are_normalised():
+    from zoneinfo import ZoneInfo
+
+    svc = make()
+    local = datetime(2026, 11, 18, 7, 30, tzinfo=ZoneInfo("America/Denver"))  # 14:30 UTC
+    (cond,) = svc.conditions_at([(LatLon(39.7, -104.9), local)]).conditions
+    assert cond.wind_mph == pytest.approx(14.5)
