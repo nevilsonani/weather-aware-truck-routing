@@ -8,7 +8,7 @@ with a **0–48 h forecast slider** shows how the weather evolves while the truc
 
 > **Live demo:** <https://weather-aware-truck-routing-delta-six.vercel.app> ·
 > **API docs:** <https://wx-truck-routing-api.onrender.com/api/docs> ·
-> **Walkthrough:** _add your Loom link_
+> **Walkthrough (Loom):** <https://www.loom.com/share/af66e44b739c45d9b70aef482d7fe304>
 
 ![Three routes from Salt Lake City to Denver: the fastest (A) crosses Severe wind on I-80 in Wyoming because the 42,000 lb load escalates 35–44 mph winds, so Route C is recommended](docs/images/plan-overview.png)
 
