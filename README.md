@@ -299,8 +299,8 @@ cd frontend && npm test && npm run lint && npm run format:check && npm run build
 |---|---|---|
 | Frontend (React build) | Vercel | [`frontend/vercel.json`](frontend/vercel.json) |
 | API (Django + Gunicorn) | Render | [`render.yaml`](render.yaml) |
-| Shared cache (Redis-compatible Key Value, free) | Render | [`render.yaml`](render.yaml) |
-| Weather proxy (Worker, free) | Cloudflare | [`infra/open-meteo-proxy/worker.js`](infra/open-meteo-proxy/worker.js) |
+| Shared cache (Redis-compatible Key Value) | Render | [`render.yaml`](render.yaml) |
+| Weather proxy (Worker) | Cloudflare | [`infra/open-meteo-proxy/worker.js`](infra/open-meteo-proxy/worker.js) |
 
 The frontend reaches the API through `VITE_API_BASE_URL`, and the API accepts the frontend's
 origin through `CORS_ALLOWED_ORIGINS`.
